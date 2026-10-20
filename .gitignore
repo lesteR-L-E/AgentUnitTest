@@ -1,0 +1,20 @@
+# 依赖与构建产物
+node_modules/
+out/
+dist/
+coverage/
+*.vsix
+
+# 环境变量（API Key 绝不入库；只允许 .env.example）
+.env
+.env.*
+!.env.example
+
+# 日志与系统文件
+*.log
+.DS_Store
+Thumbs.db
+
+# Python 遗留（本仓库不应出现，防御性忽略）
+.venv/
+__pycache__/

@@ -1,0 +1,28 @@
+{
+  "name": "agent-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentUnitTest 后端：Agent Runtime（Vercel AI SDK）+ LLM 工厂 + 工具 + WS 服务（协议 v2）",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "smoke:llm": "tsx src/smoke/hello-llm.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.84",
+    "@ai-sdk/openai": "^4.0.98",
+    "ai": "^7.0.146",
+    "dotenv": "^18.0.8",
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

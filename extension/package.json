@@ -1,0 +1,32 @@
+{
+  "name": "agent-unittest-extension",
+  "displayName": "AgentUnitTest (scaffold)",
+  "description": "VSCode 单元测试垂直对话 Agent —— 脚手架占位版（M1 第 6 步实现演示 UI）",
+  "version": "0.1.0",
+  "publisher": "sysuselab",
+  "private": true,
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "agentUnitTest.hello",
+        "title": "AgentUnitTest: Hello (scaffold)"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "watch": "tsc -w -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.95.0"
+  }
+}
