@@ -168,3 +168,26 @@ export const TOOL_CONTRACTS = {
   repair_tests: { input: RepairTestsInputSchema, output: RepairTestsOutputSchema },
   read_artifact: { input: ReadArtifactInputSchema, output: ReadArtifactOutputSchema },
 } as const satisfies Record<ToolName, { input: z.ZodType; output: z.ZodType }>;
+
+// ───────────────────────── 推导类型（消费方 import type 用） ─────────────────────────
+// 注意：Input 类型是 z.infer 的「输出侧」类型 —— 带 .default() 的字段已补齐、可选字段已展开，
+// 即工具 execute 实际收到的参数形状。
+
+export type AnalyzeCodeInput = z.infer<typeof AnalyzeCodeInputSchema>;
+export type AnalyzeCodeOutput = z.infer<typeof AnalyzeCodeOutputSchema>;
+export type ReadProjectFileInput = z.infer<typeof ReadProjectFileInputSchema>;
+export type ReadProjectFileOutput = z.infer<typeof ReadProjectFileOutputSchema>;
+export type SearchProjectInput = z.infer<typeof SearchProjectInputSchema>;
+export type SearchProjectOutput = z.infer<typeof SearchProjectOutputSchema>;
+export type InspectEnvironmentInput = z.infer<typeof InspectEnvironmentInputSchema>;
+export type InspectEnvironmentOutput = z.infer<typeof InspectEnvironmentOutputSchema>;
+export type GenerateTestsInput = z.infer<typeof GenerateTestsInputSchema>;
+export type GenerateTestsOutput = z.infer<typeof GenerateTestsOutputSchema>;
+export type RunTestsInput = z.infer<typeof RunTestsInputSchema>;
+export type RunTestsOutput = z.infer<typeof RunTestsOutputSchema>;
+export type DiagnoseFailuresInput = z.infer<typeof DiagnoseFailuresInputSchema>;
+export type DiagnoseFailuresOutput = z.infer<typeof DiagnoseFailuresOutputSchema>;
+export type RepairTestsInput = z.infer<typeof RepairTestsInputSchema>;
+export type RepairTestsOutput = z.infer<typeof RepairTestsOutputSchema>;
+export type ReadArtifactInput = z.infer<typeof ReadArtifactInputSchema>;
+export type ReadArtifactOutput = z.infer<typeof ReadArtifactOutputSchema>;

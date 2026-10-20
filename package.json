@@ -17,6 +17,9 @@
     "test": "echo \"(placeholder) 暂无测试，M2 起随真工具补齐\" && exit 0",
     "smoke:llm": "npm run smoke:llm -w agent-server",
     "smoke:contracts": "npm run smoke:contracts -w agent-server",
+    "smoke:ws": "npm run smoke:ws -w agent-server",
+    "smoke:confirm": "npm run smoke:confirm -w agent-server",
+    "smoke:agent": "npm run smoke:agent -w agent-server",
     "dev": "npm run dev -w agent-server"
   }
 }

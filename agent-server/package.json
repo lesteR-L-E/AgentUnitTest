@@ -10,7 +10,10 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "smoke:llm": "tsx src/smoke/hello-llm.ts",
-    "smoke:contracts": "tsx src/smoke/hello-contracts.ts"
+    "smoke:contracts": "tsx src/smoke/hello-contracts.ts",
+    "smoke:ws": "tsx src/smoke/hello-ws.ts",
+    "smoke:confirm": "tsx src/smoke/hello-confirm.ts",
+    "smoke:agent": "tsx src/smoke/hello-agent.ts"
   },
   "dependencies": {
     "@agent-unittest/contracts": "*",

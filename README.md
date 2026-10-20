@@ -30,6 +30,10 @@ npm run dev                        # http://127.0.0.1:8765/health
 cp agent-server/.env.example agent-server/.env   # 填入任一 provider 的 key
 npm run smoke:llm
 
+# 其余冒烟：contracts/ws/confirm 零 token 消耗；agent 为全链路（真实 LLM + 桩工具）
+npm run smoke:contracts && npm run smoke:ws && npm run smoke:confirm
+npm run smoke:agent
+
 # 插件脚手架：VSCode 打开本仓库，F5 启动扩展开发宿主，
 # 命令面板执行「AgentUnitTest: Hello (scaffold)」
 ```
@@ -43,7 +47,7 @@ npm run smoke:llm
 ## 里程碑状态（详见项目文档 §9）
 
 - [x] M0 选型：A1 全面 TypeScript + Vercel AI SDK（2026-10-17）
-- [ ] **M1 地基 MVP（进行中）**：脚手架 ✅ → zod 契约 ✅（初稿待评审）→ llm/ 工厂 → runtime 骨架 → 9 桩工具 → WS 冒烟 → 最简陋演示插件
+- [ ] **M1 地基 MVP（进行中）**：脚手架 ✅ → zod 契约 ✅（初稿待评审）→ llm/ 工厂 ✅ → runtime 骨架 ✅ → 9 桩工具 ✅ → 四套冒烟全绿 ✅ → **最简陋演示插件 ⏳（最后一步）**
 - [ ] M2 并行填充（全员替换桩工具 + 正式 UI）
 - [ ] M3 跨平台强化 + CI 矩阵全绿
 - [ ] M4 端到端联调（验收场景 1~11）

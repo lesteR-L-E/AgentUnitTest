@@ -39,6 +39,17 @@ export const ChatMessageSchema = z
   .strict();
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
+/** 双重确认决定（§3.7：用户点击侧边栏 同意/拒绝 按钮时发送） */
+export const ConfirmMessageSchema = z
+  .object({
+    type: z.literal("confirm"),
+    sessionId: z.string(),
+    confirmId: z.string(),
+    decision: z.enum(["approve", "reject"]),
+  })
+  .strict();
+export type ConfirmMessage = z.infer<typeof ConfirmMessageSchema>;
+
 export const CancelMessageSchema = z
   .object({ type: z.literal("cancel"), sessionId: z.string() })
   .strict();
@@ -61,6 +72,7 @@ export type PingMessage = z.infer<typeof PingMessageSchema>;
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   RunTaskMessageSchema,
   ChatMessageSchema,
+  ConfirmMessageSchema,
   CancelMessageSchema,
   ClearMemoryMessageSchema,
   PingMessageSchema,
@@ -126,6 +138,20 @@ export const ResultMessageSchema = z.object({
 });
 export type ResultMessage = z.infer<typeof ResultMessageSchema>;
 
+/**
+ * 双重确认请求（§3.7）：UI 据此渲染 同意/拒绝 按钮，
+ * 用户点击结果经 confirm 客户端消息回传。两次确认 = 两条本消息（stage 依次为 content → risk）。
+ */
+export const ConfirmationRequestMessageSchema = z.object({
+  type: z.literal("confirmation_request"),
+  sessionId: z.string(),
+  confirmId: z.string(),
+  stage: z.enum(["content", "risk"]), // content=第一次（变更内容对照）/ risk=第二次（风险提示）
+  question: z.string(),
+  detail: z.string().default(""),
+});
+export type ConfirmationRequestMessage = z.infer<typeof ConfirmationRequestMessageSchema>;
+
 export const ErrorMessageSchema = z.object({
   type: z.literal("error"),
   sessionId: z.string().optional(),
@@ -154,6 +180,7 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   AgentMessageSchema,
   TestCodeMessageSchema,
   ResultMessageSchema,
+  ConfirmationRequestMessageSchema,
   ErrorMessageSchema,
   CancelledMessageSchema,
   SessionExpiredMessageSchema,
