@@ -10,9 +10,23 @@
  * 届时 getModel(provider, model) 会成为全项目唯一的模型出口（项目文档 §3.6）。
  */
 import "dotenv/config";
-import { streamText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
-import { createAnthropic } from "@ai-sdk/anthropic";
+
+// ⚠️ 必须在 import AI SDK 之前清理「空字符串」环境变量：
+// @ai-sdk/openai 等包在模块加载时就会创建默认实例并读取 OPENAI_BASE_URL，
+// 空字符串会被当成非法 baseURL 直接抛错（.env 里写了 `OPENAI_BASE_URL=` 就会踩中）。
+for (const key of [
+  "OPENAI_BASE_URL",
+  "OPENAI_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "ANTHROPIC_API_KEY",
+]) {
+  if (process.env[key]?.trim() === "") delete process.env[key];
+}
+
+// 清理之后再动态 import AI SDK（静态 import 会先于上面的代码执行，故用动态）
+const { streamText } = await import("ai");
+const { createOpenAI } = await import("@ai-sdk/openai");
+const { createAnthropic } = await import("@ai-sdk/anthropic");
 
 function pickModel() {
   // 优先级：DeepSeek（走 OpenAI 兼容协议）> OpenAI > Anthropic
@@ -34,7 +48,7 @@ function pickModel() {
     const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     return { name: "anthropic/claude-sonnet", model: anthropic("claude-sonnet-4-5") };
   }
-  throw new Error("未在 .env 中找到任何 API key（参考 .env.example 填写）");
+  throw new Error("未在 .env 中找到任何 API key（参考 .env.example 填写；注意不要留空值行）");
 }
 
 const { name, model } = pickModel();
