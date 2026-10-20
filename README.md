@@ -10,6 +10,7 @@ VSCode 中的 **Java 单元测试生成垂直对话 Agent**：选中代码 → A
 ```
 AgentUnitTest/
 ├── docs/               # 项目文档-v2（目标设计·唯一事实源）· 重构讨论稿（决议）· 优化点汇总
+├── contracts/          # ★ 契约层（单一事实源）：WS 协议 v2 + IR 模型 + 9 工具接口（zod）
 ├── agent-server/       # Agent 后端（Node ≥20）：runtime / llm 工厂 / tools / WS 服务
 ├── extension/          # VSCode 插件（对话式侧边栏 UI）
 └── .github/workflows/  # CI（ubuntu + macos + windows 三平台矩阵）
@@ -42,7 +43,7 @@ npm run smoke:llm
 ## 里程碑状态（详见项目文档 §9）
 
 - [x] M0 选型：A1 全面 TypeScript + Vercel AI SDK（2026-10-17）
-- [ ] **M1 地基 MVP（进行中）**：脚手架 ✅ → zod 契约 → llm/ 工厂 → runtime 骨架 → 9 桩工具 → WS 冒烟 → 最简陋演示插件
+- [ ] **M1 地基 MVP（进行中）**：脚手架 ✅ → zod 契约 ✅（初稿待评审）→ llm/ 工厂 → runtime 骨架 → 9 桩工具 → WS 冒烟 → 最简陋演示插件
 - [ ] M2 并行填充（全员替换桩工具 + 正式 UI）
 - [ ] M3 跨平台强化 + CI 矩阵全绿
 - [ ] M4 端到端联调（验收场景 1~11）

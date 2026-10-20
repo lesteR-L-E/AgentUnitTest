@@ -1,0 +1,25 @@
+{
+  "name": "@agent-unittest/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentUnitTest 契约层（单一事实源）：WS 协议 v2 · IR 数据模型 · 9 个工具接口（zod schema + TS 类型）",
+  "main": "./out/index.js",
+  "types": "./out/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./out/index.d.ts",
+      "default": "./out/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

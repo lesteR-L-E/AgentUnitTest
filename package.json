@@ -4,6 +4,7 @@
   "private": true,
   "description": "AgentUnitTest v2 — VSCode 单元测试垂直对话 Agent（TS monorepo：agent-server + extension）",
   "workspaces": [
+    "contracts",
     "agent-server",
     "extension"
   ],
@@ -15,6 +16,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "echo \"(placeholder) 暂无测试，M2 起随真工具补齐\" && exit 0",
     "smoke:llm": "npm run smoke:llm -w agent-server",
+    "smoke:contracts": "npm run smoke:contracts -w agent-server",
     "dev": "npm run dev -w agent-server"
   }
 }

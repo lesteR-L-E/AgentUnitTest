@@ -9,9 +9,11 @@
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "smoke:llm": "tsx src/smoke/hello-llm.ts"
+    "smoke:llm": "tsx src/smoke/hello-llm.ts",
+    "smoke:contracts": "tsx src/smoke/hello-contracts.ts"
   },
   "dependencies": {
+    "@agent-unittest/contracts": "*",
     "@ai-sdk/anthropic": "^4.0.84",
     "@ai-sdk/openai": "^4.0.98",
     "ai": "^7.0.146",
