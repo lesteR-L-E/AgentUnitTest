@@ -346,7 +346,8 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<void> {
       abortSignal: ac.signal,
     });
 
-    for await (const part of result.fullStream) {
+    // v7：fullStream 已弃用，改名为 stream（分片类型不变）
+    for await (const part of result.stream) {
       switch (part.type) {
         case "text-delta": {
           assistantText += part.text; // v7 的 text-delta 分片字段名是 text
@@ -387,10 +388,12 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<void> {
     }
 
     // 本轮产生的 assistant/tool 消息落入会话历史（跨轮记忆）
-    const response = await result.response;
-    session.messages.push(...response.messages);
+    // v7：response.messages 已弃用，改用 responseMessages（全部步骤的累计响应消息）
+    const newMessages = await result.responseMessages;
+    session.messages.push(...newMessages);
 
-    const usage = await result.totalUsage;
+    // v7：totalUsage 已弃用，usage 本身即全步骤累计值
+    const usage = await result.usage;
     console.log(
       `[agent] session=${sessionId} turn=${turnId.slice(0, 8)} tokens: in=${usage.inputTokens} out=${usage.outputTokens} total=${usage.totalTokens}`,
     );
