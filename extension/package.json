@@ -1,7 +1,7 @@
 {
   "name": "agent-unittest-extension",
-  "displayName": "AgentUnitTest (scaffold)",
-  "description": "VSCode 单元测试垂直对话 Agent —— 脚手架占位版（M1 第 6 步实现演示 UI）",
+  "displayName": "AgentUnitTest",
+  "description": "Java 单元测试生成垂直对话 Agent（M1 演示版）",
   "version": "0.1.0",
   "publisher": "sysuselab",
   "private": true,
@@ -14,19 +14,76 @@
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "agentUnitTestContainer",
+          "title": "AgentUnitTest",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "agentUnitTestContainer": [
+        {
+          "type": "webview",
+          "id": "agentUnitTest.sidebar",
+          "name": "单元测试 Agent"
+        }
+      ]
+    },
     "commands": [
+      {
+        "command": "agentUnitTest.generateTests",
+        "title": "Generate Unit Tests",
+        "category": "AgentUnitTest"
+      },
       {
         "command": "agentUnitTest.hello",
         "title": "AgentUnitTest: Hello (scaffold)"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "agentUnitTest.generateTests",
+          "when": "editorHasSelection",
+          "group": "navigation@0"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AgentUnitTest",
+      "properties": {
+        "agentUnitTest.provider": {
+          "type": "string",
+          "enum": ["deepseek", "openai", "anthropic"],
+          "default": "deepseek",
+          "description": "LLM Provider（API Key 配置在 agent-server/.env）"
+        },
+        "agentUnitTest.model": {
+          "type": "string",
+          "default": "",
+          "description": "模型名（留空使用 provider 默认模型）"
+        },
+        "agentUnitTest.backendPath": {
+          "type": "string",
+          "default": "",
+          "description": "agent-server 目录的自定义路径（留空自动探测：<仓库根>/agent-server）"
+        }
+      }
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "watch": "tsc -w -p tsconfig.json"
   },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
   "devDependencies": {
-    "@types/vscode": "^1.95.0"
+    "@types/vscode": "^1.95.0",
+    "@types/ws": "^8.18.2"
   }
 }

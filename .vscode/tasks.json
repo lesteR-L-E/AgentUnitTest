@@ -2,9 +2,9 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "build-extension",
+      "label": "build-all",
       "type": "shell",
-      "command": "npm run build -w extension",
+      "command": "npm run build",
       "problemMatcher": "$tsc",
       "group": {
         "kind": "build",

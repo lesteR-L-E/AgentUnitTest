@@ -34,8 +34,12 @@ npm run smoke:llm
 npm run smoke:contracts && npm run smoke:ws && npm run smoke:confirm
 npm run smoke:agent
 
-# 插件脚手架：VSCode 打开本仓库，F5 启动扩展开发宿主，
-# 命令面板执行「AgentUnitTest: Hello (scaffold)」
+# 插件演示 UI（M1 第 6 步）：
+#   1. VSCode 打开本仓库，按 F5（自动编译三个包并启动「扩展开发宿主」新窗口）
+#   2. 新窗口中：文件 → 打开文件夹 → 选择任意 Java 项目（含 pom.xml/build.gradle）
+#   3. 点击活动栏的 AgentUnitTest 图标打开侧边栏（后端进程自动启动）
+#   4. 选中一段 Java 代码 → 点「生成测试(选中)」或右键 → Generate Unit Tests
+#   5. 在输入框和 Agent 对话；「新建对话」/「对话列表」可切换会话（对话存于 agent-server/data/sessions/）
 ```
 
 ## 文档

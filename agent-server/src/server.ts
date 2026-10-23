@@ -14,6 +14,7 @@ import "./env.js"; // ⚠️ 必须是第一个 import（清洗空字符串环�
 
 import http from "node:http";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   ClientMessageSchema,
@@ -335,6 +336,7 @@ export async function startServer(port: number): Promise<ServerHandle> {
 }
 
 // 直接运行本文件时启动服务（被 import 时不启动，供冒烟脚本复用）
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL：跨平台安全的路径→URL 转换（Windows 盘符/反斜杠场景下字符串拼接会失效）
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   void startServer(Number(process.env.PORT ?? 8765));
 }

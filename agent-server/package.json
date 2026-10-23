@@ -5,8 +5,8 @@
   "type": "module",
   "description": "AgentUnitTest 后端：Agent Runtime（Vercel AI SDK）+ LLM 工厂 + 工具 + WS 服务（协议 v2）",
   "scripts": {
-    "build": "tsc --noEmit",
-    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "smoke:llm": "tsx src/smoke/hello-llm.ts",
