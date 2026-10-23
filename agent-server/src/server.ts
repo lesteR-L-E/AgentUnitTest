@@ -140,7 +140,7 @@ async function handleChat(msg: ChatMessage, emit: EmitFn): Promise<void> {
     emit({
       type: "error",
       sessionId: msg.sessionId,
-      message: "会话没有可用模型：请先发起一次生成任务（run_task），或在 .env 配置 DEFAULT_PROVIDER 对应的 key",
+      message: "会话没有可用模型：请在 agent-server/.env 配置任一 provider 的 API key（DEEPSEEK/OPENAI/ANTHROPIC），或先发起一次生成任务",
     });
     return;
   }
@@ -156,14 +156,29 @@ async function handleChat(msg: ChatMessage, emit: EmitFn): Promise<void> {
   );
 }
 
+/**
+ * chat 消息不带 provider（模型绑定在会话上）：
+ * 会话没跑过 run_task 时按以下优先级取默认模型——
+ *   1. DEFAULT_PROVIDER 显式指定（配合 DEFAULT_MODEL）；
+ *   2. 自动探测 .env 里已配置的 key：deepseek → openai → anthropic。
+ */
 function defaultHandle(): ModelHandle | null {
-  const provider = process.env.DEFAULT_PROVIDER?.trim();
-  if (!provider) return null;
-  try {
-    return getModel(provider, process.env.DEFAULT_MODEL);
-  } catch {
-    return null;
+  const explicit = process.env.DEFAULT_PROVIDER?.trim();
+  if (explicit) {
+    try {
+      return getModel(explicit, process.env.DEFAULT_MODEL);
+    } catch {
+      return null;
+    }
   }
+  for (const candidate of ["deepseek", "openai", "anthropic"]) {
+    try {
+      return getModel(candidate);
+    } catch {
+      // 该 provider 没配 key，试下一个
+    }
+  }
+  return null;
 }
 
 async function handleConfirm(msg: ConfirmMessage, emit: EmitFn): Promise<void> {
