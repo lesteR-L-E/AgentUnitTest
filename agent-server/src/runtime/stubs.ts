@@ -45,6 +45,12 @@ const JAVA_KEYWORDS = new Set([
 const METHOD_RE =
   /(?:^|\n)[ \t]*(?:(?:public|protected|private)[ \t]+)?(?:static[ \t]+)?(?:final[ \t]+)?([\w<>\[\], .]+?)[ \t]+(\w+)[ \t]*\(([^)]*)\)[ \t]*(?:throws[ \t]+[\w.,\s]+)?\{/g;
 
+/**
+ * 桩｜半真：正则轻解析 Java 源码（相当于 v1 的 Tier3）。
+ * 容错分支：找不到 package/类名 → 用 null/"Unknown" 兜底而不报错；
+ * 方法名或"返回类型"命中 Java 关键字（if/for/class 等）→ 丢弃该匹配（正则误报过滤）。
+ * M2 由人员1 换成 java-parser/web-tree-sitter 真实现，本函数即对照基线。
+ */
 export async function analyzeCodeStub(input: AnalyzeCodeInput): Promise<{ ok: true; data: CodeAnalysis }> {
   const code = input.code;
   const packageName = /package\s+([\w.]+)\s*;/.exec(code)?.[1] ?? null;
@@ -113,6 +119,14 @@ export async function analyzeCodeStub(input: AnalyzeCodeInput): Promise<{ ok: tr
 
 // ───────────────────────── 2. read_project_file（真实现：读文件 + 越权防护） ─────────────────────────
 
+/**
+ * 桩｜真实现：读取项目内文件（对话追问/依赖下钻的能力来源）。
+ * 三个拒绝分支（都返回结构化错误，LLM 收到后会换路径或放弃）：
+ *  1. 会话没有 taskContext（不知道 workspaceRoot）→ 拒绝；
+ *  2. 解析后的绝对路径越出 workspaceRoot → 拒绝（防任意文件读取，契约里的安全规则）；
+ *  3. 文件不存在/读失败 → 错误信息带原因。
+ * 截断分支：超过 maxBytes → 只读前段并标记 truncated=true（防大文件撑爆上下文）。
+ */
 export async function readProjectFileStub(
   input: ReadProjectFileInput,
   ctx: ToolContext,
@@ -138,6 +152,7 @@ export async function readProjectFileStub(
 
 // ───────────────────────── 3. search_project（桩：M2 由人员1 实现） ─────────────────────────
 
+/** 桩：恒返回空匹配列表（M2 人员1 实现符号/文本检索）。空结果对 LLM 是诚实的「没找到」，不会误导它编造内容 */
 export async function searchProjectStub(
   _input: SearchProjectInput,
 ): Promise<{ ok: true; data: { matches: Array<{ path: string; line: number | null; snippet: string }> } }> {
@@ -147,6 +162,7 @@ export async function searchProjectStub(
 
 // ───────────────────────── 4. inspect_environment（半真：探测构建文件） ─────────────────────────
 
+/** 小工具：路径存在性探测（access 抛任何错都视为不存在） */
 async function exists(p: string): Promise<boolean> {
   try {
     await access(p);
@@ -156,6 +172,13 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+/**
+ * 桩｜半真：真实探测项目根的构建文件。
+ * 构建工具分支：有 pom.xml → maven；否则有 build.gradle(.kts) → gradle；都没有 → none。
+ * wrapper 分支：按平台找 mvnw.cmd/win 或 mvnw/unix（存在才填 buildWrapperPath）。
+ * [stub] 假定值：testFramework 恒为 junit5、javaVersion 恒为 null —— M2 由人员3 做真检测。
+ * 结果同时写入 session.state.latest.envContext。
+ */
 export async function inspectEnvironmentStub(
   input: InspectEnvironmentInput,
   ctx: ToolContext,
@@ -198,6 +221,13 @@ export async function inspectEnvironmentStub(
 
 // ───────────────────────── 5. generate_tests（桩：模板生成） ─────────────────────────
 
+/**
+ * 桩：按模板拼一份 JUnit5 测试源码（M2 人员2 换成真 LLM 生成）。
+ * 关键分支：userConstraints 或 userFeedback 里含 "fail"/"失败" → 故意注入 STUB_FAIL 标记用例，
+ * 让 run_tests 走失败路径（演示 诊断→双重确认 全流程的开关）。
+ * 用例来源分支：CodeAnalysis 里有方法 → 每个方法一个用例（最多 3 个）；没有 → 单个 example 用例。
+ * 副作用：更新 latest.generatedTest + 产物存档（test_code）。
+ */
 export async function generateTestsStub(
   input: GenerateTestsInput,
   ctx: ToolContext,
@@ -247,6 +277,12 @@ ${body}
 
 // ───────────────────────── 6. run_tests（桩：罐头结果；代码含 fail() 标记则走失败路径） ─────────────────────────
 
+/**
+ * 桩：罐头执行结果（M2 人员2 换成沙箱写入 + Maven/Gradle 真执行）。
+ * 成败分支：测试代码含 STUB_FAIL 标记 → test_failure（恰 1 个失败 + 失败详情）；否则 → success 全过。
+ * testCount 按代码里 @Test 注解个数统计（至少 1）。
+ * 副作用：更新 latest.testResult + 产物存档（test_result 的完整 JSON）。
+ */
 export async function runTestsStub(
   input: RunTestsInput,
   ctx: ToolContext,
@@ -299,6 +335,11 @@ export async function runTestsStub(
 
 // ───────────────────────── 7. diagnose_failures（桩：失败一律归为断言类 → 触发双重确认） ─────────────────────────
 
+/**
+ * 桩：把每个失败用例一律归类为 assertion_error，且 requiresDoubleConfirm=true、autoRepairable=false
+ * ——刻意让所有失败都命中 §3.7 护栏路径（自动修复必须停下问用户），方便演示与验收；
+ * M2 人员2 换成真诊断（区分编译错/mock 配置/断言/源码 bug 等，编译类才允许自动修）。
+ */
 export async function diagnoseFailuresStub(
   input: DiagnoseFailuresInput,
   ctx: ToolContext,
@@ -328,6 +369,11 @@ export async function diagnoseFailuresStub(
 
 // ───────────────────────── 8. repair_tests 桩本体（护栏校验在 agent.ts 包装器，不在这里） ─────────────────────────
 
+/**
+ * 桩本体：移除 STUB_FAIL 标记（让重跑通过）+ 在文件头追加修复说明注释。
+ * ⚠️ 注意：护栏校验不在这里——在 agent.ts 的 handleRepairCall 包装器里，
+ * 能执行到本函数说明「非断言级修改」或「双重确认凭证已验真」。M2 人员2 换成真 LLM 修复。
+ */
 export async function repairTestsStub(
   input: RepairTestsInput,
   ctx: ToolContext,
@@ -351,6 +397,10 @@ export async function repairTestsStub(
 
 // ───────────────────────── 9. read_artifact（真实现：从会话产物库读取） ─────────────────────────
 
+/**
+ * 真实现：按 ID 从档案室取产物全文（对话追问「为什么失败」的数据来源）。
+ * 分支：ID 不存在 → 结构化错误（LLM 收到后会换 ID 或改用其他工具）；超 maxBytes → 截断并标记 truncated。
+ */
 export async function readArtifactStub(
   input: ReadArtifactInput,
   ctx: ToolContext,

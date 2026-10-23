@@ -45,6 +45,7 @@ const sessionsBySocket = new Map<WebSocket, Set<string>>();
 
 // ───────────────────────── 基础设施 ─────────────────────────
 
+/** 出站消息唯一出口：先过 ServerMessageSchema 校验再发。分支：违反契约 → 拦截并打日志（宁可不发，不让后端 bug 污染前端）；连接未打开 → 静默丢弃 */
 function send(socket: WebSocket, msg: ServerMessage): void {
   const parsed = ServerMessageSchema.safeParse(msg);
   if (!parsed.success) {
@@ -54,6 +55,7 @@ function send(socket: WebSocket, msg: ServerMessage): void {
   if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(parsed.data));
 }
 
+/** 登记 socket↔sessionId 双向映射。用途：断线时知道该取消哪些会话的轮次（sessionsBySocket）；socketsBySession 为 M2「同会话多连接广播」预留 */
 function bind(socket: WebSocket, sessionId: string): void {
   let set = socketsBySession.get(sessionId);
   if (!set) socketsBySession.set(sessionId, (set = new Set()));
@@ -63,7 +65,11 @@ function bind(socket: WebSocket, sessionId: string): void {
   owned.add(sessionId);
 }
 
-/** 同会话任务串行：运行中收到的新消息自动排队（不并发、不丢失） */
+/**
+ * 同会话任务串行队列（「任务运行中收到的 chat 自动排队」决议的实现）。
+ * 原理：每个 sessionId 一条 Promise 链，新任务永远接在链尾。
+ * 关键写法 prev.then(task, task)：上一个任务无论成功还是失败，下一个都照常执行——一次失败不会卡死整条队列。
+ */
 function enqueue(sessionId: string, task: () => Promise<void>): void {
   const prev = chains.get(sessionId) ?? Promise.resolve();
   const next = prev.then(task, task);
@@ -83,6 +89,14 @@ function deriveTitle(text: string): string {
 
 // ───────────────────────── 消息处理 ─────────────────────────
 
+/**
+ * run_task（生成测试任务）处理。分支：
+ *  - 该会话已有运行中轮次 → 先 abort 抢占（新任务取消旧任务，沿用 v1 行为）；
+ *  - 标题为空 → 用 instruction 或「文件名 测试对话」派生（对话列表显示用）；
+ *  - 模型构造失败（provider 不认识 / key 缺失）→ 直接回 error，不入队；
+ *  - 成功 → 任务上下文与模型绑定先落盘一次（本轮即使崩溃，重启后上下文也在），再排队执行：
+ *    validateModel（凭证最小请求校验，失败回 error）→ runAgentTurn（轮次结束自动落盘）。
+ */
 async function handleRunTask(msg: RunTaskMessage, emit: EmitFn): Promise<void> {
   const session = await sessions.getOrCreate(msg.sessionId);
   session.abortController?.abort(); // 抢占：新任务取消旧轮次（沿用 v1 行为）
@@ -216,6 +230,12 @@ async function handleConfirm(msg: ConfirmMessage, emit: EmitFn): Promise<void> {
 
 // ───────────────────────── 服务器 ─────────────────────────
 
+/**
+ * 组装 HTTP + WS 服务器（不监听，供 startServer 与冒烟脚本复用）。
+ * HTTP 分支：/health → 状态 JSON（插件就绪探测用）；其他路径 → 404。
+ * WS 每条入站消息过三道关：JSON 解析失败 → error；ClientMessageSchema 校验失败（含 strict 多余字段）→ error；
+ * 通过后才进 switch 分发。整个分发体包在 async try/catch 里兜底——例如非法 sessionId 的路径穿越抛错会在这里转成 error 消息回给客户端，而不是炸掉连接。
+ */
 export function createServer(): { httpServer: http.Server; wss: WebSocketServer } {
   const httpServer = http.createServer((req, res) => {
     if (req.url === "/health") {

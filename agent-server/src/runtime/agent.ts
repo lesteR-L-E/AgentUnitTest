@@ -39,7 +39,7 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
 
 // ───────────────────────── 任务消息构造 ─────────────────────────
 
-/** run_task → 预设用户消息（「任务与对话统一为消息」，项目文档 §3.2(2)） */
+/** run_task → 预设用户消息（「任务与对话统一为消息」，项目文档 §3.2(2)）。分支：instruction 非空时追加「用户附加约束」一行——生成前对话谈好的约束就是这样进入 LLM 上下文的 */
 export function buildTaskUserMessage(task: {
   code: string;
   filePath: string;
@@ -59,10 +59,12 @@ export function buildTaskUserMessage(task: {
 
 // ───────────────────────── 工具执行 ─────────────────────────
 
+/** 类型守卫：判断工具返回值是否为 {ok:true,data} 成功信封（失败信封不触发副作用推送） */
 function isOk(raw: unknown): raw is { ok: true; data: Record<string, unknown> } {
   return typeof raw === "object" && raw !== null && (raw as { ok?: unknown }).ok === true;
 }
 
+/** 把生成/修复后的测试源码推给前端（test_code 消息），附带最新一份 test_code 产物的 ID（前端与 LLM 之后可凭 ID 调 read_artifact 取全文） */
 function emitTestCode(session: Session, emit: EmitFn, generated: GeneratedTest): void {
   emit({
     type: "test_code",
@@ -73,6 +75,10 @@ function emitTestCode(session: Session, emit: EmitFn, generated: GeneratedTest):
   });
 }
 
+/**
+ * 把工具结果压缩成一句人话，填进 tool_call 消息的 summary 字段（侧边栏任务状态行显示用）。
+ * 分支：按工具名各取关键字段；未知工具 / data 缺失 / 取字段抛错 → 一律返回 undefined（摘要失败绝不影响主流程）。
+ */
 function summarizeToolResult(name: ToolName, data: Record<string, unknown> | undefined): string | undefined {
   if (!data) return undefined;
   try {
@@ -96,6 +102,15 @@ function summarizeToolResult(name: ToolName, data: Record<string, unknown> | und
   }
 }
 
+/**
+ * 所有工具的统一执行入口（buildTools 注册给 AI SDK 的 execute 回调都指向这里）。
+ * 流程分支：
+ *  1. repair_tests → 转交 handleRepairCall 走护栏（可能不执行本体，改发确认请求）；
+ *  2. 其他工具 → 分发到对应桩实现；analyze_code 成功后额外把结果写入 latest.codeAnalysis；
+ *  3. 桩实现抛异常 → 兜底转成 {ok:false, retryable:true} 结构化错误（工具永不炸会话，LLM 自己决定重试或求助）；
+ *  4. 成功后的副作用推送：generate_tests → test_code 消息；run_tests → result 消息（前端结果卡）。
+ * 返回值由 SDK 自动喂回 LLM，成为下一步推理的输入。
+ */
 async function executeTool(
   name: ToolName,
   args: unknown,
@@ -230,7 +245,16 @@ export interface ConfirmHooks {
   onResume: (systemMessage: string) => void;
 }
 
-/** confirm 消息处理：content 批准 → 发起 risk；risk 批准 → 服务端代执行修复并恢复轮次；拒绝 → 告知 Agent */
+/**
+ * confirm 消息（用户点了确认按钮）处理。全部分支：
+ *  - confirmId 不在账本 → 报 error（伪造/过期 ID）；
+ *  - 该确认已有决定 → 报 error（拒绝重复提交）；
+ *  - 无 pendingRepair → 静默返回（理论上不发生：确认请求只会伴随暂存的修复产生）；
+ *  - decision=reject（任意阶段）→ 清暂存，注入「用户已拒绝」系统消息开新一轮（Agent 会改口问用户意图）；
+ *  - decision=approve 且 stage=content → 登记第二步（risk）确认并发出新的 confirmation_request；
+ *  - decision=approve 且 stage=risk → 服务端把两个确认 ID 注入暂存参数、代 LLM 执行修复，
+ *    推送 test_code，再注入「已确认已修复，去 run_tests 重跑」系统消息开新一轮。
+ */
 export async function handleConfirmDecision(
   session: Session,
   msg: ConfirmMessage,
@@ -303,6 +327,12 @@ export async function handleConfirmDecision(
 
 // ───────────────────────── Agent Loop ─────────────────────────
 
+/**
+ * 把契约注册表（TOOL_CONTRACTS）翻译成 AI SDK 的 tools 集合。
+ * 每个工具三要素：description（LLM 看的用途说明）、inputSchema（zod → JSON Schema，LLM 传参据此校验）、
+ * execute（统一走 executeTool：护栏、副作用、错误信封都在那里收口）。
+ * 每轮对话新建一次（闭包捕获当前 session 与 emit）。
+ */
 function buildTools(session: Session, emit: EmitFn) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tools: Record<string, any> = {};
@@ -326,7 +356,15 @@ export interface RunTurnOptions {
   onPersist?: () => void | Promise<void>;
 }
 
-/** 执行一轮 Agent 对话（任务触发与 chat 触发走同一入口） */
+/**
+ * 执行一轮 Agent 对话（run_task 与 chat 走同一入口——「任务即消息」）。
+ * 内部流程：用户消息入历史 → streamText 启动多步循环（SDK 自动完成：LLM 要调工具 → zod 校验参数
+ * → execute → 结果喂回 → 再问 LLM……直到 LLM 只回文本，或达 stopWhen 的 25 步上限）
+ * → 消费 result.stream 把分片实时翻译成协议 v2 消息 → 轮末把本轮 assistant/tool 消息落入历史（跨轮记忆）→ token 记账。
+ * 关键分支：
+ *  - catch：若是 cancel 触发的 abort → 发 cancelled；其他异常 → 发 error（轮次失败不清历史，用户可继续聊）；
+ *  - finally：无论成败/取消 → 复位轮次状态 + onPersist 落盘（重启续聊靠这一步）。
+ */
 export async function runAgentTurn(opts: RunTurnOptions): Promise<void> {
   const { session, handle, emit, userMessage } = opts;
   const sessionId = session.state.sessionId;

@@ -33,12 +33,17 @@ export interface GetModelOptions {
   baseURL?: string;
 }
 
+/** 规范化 provider 名：去空格 + 转小写。分支：三个合法名之一 → 返回；否则抛错（错误文案含可选项，会经 server 直接回给前端） */
 export function normalizeProvider(raw: string): ProviderName {
   const p = raw.trim().toLowerCase();
   if (p === "deepseek" || p === "openai" || p === "anthropic") return p;
   throw new Error(`不支持的 provider: "${raw}"（可选: deepseek / openai / anthropic）`);
 }
 
+/**
+ * 解析 API key。优先级分支：请求显式传入的 apiKey（非空、trim 后）> .env 对应环境变量。
+ * 两者都没有 → 抛错（提示去哪配置）。显式 key 只允许来自本机回环的 WS 请求，严禁写日志。
+ */
 function resolveKey(provider: ProviderName, explicit?: string): string {
   const key = explicit?.trim() || process.env[ENV_KEY[provider]]?.trim();
   if (!key) {
@@ -49,6 +54,14 @@ function resolveKey(provider: ProviderName, explicit?: string): string {
   return key;
 }
 
+/**
+ * 全项目唯一的模型出口：provider 字符串 + 模型名 → AI SDK 可用的 ModelHandle。
+ * 通道分支：
+ *  - anthropic → createAnthropic 原生通道；
+ *  - deepseek  → createOpenAI + 官方兼容 baseURL（调用方可覆盖）；
+ *  - openai    → createOpenAI，baseURL 优先级：调用方传参 > OPENAI_BASE_URL 环境变量 > 官方默认。
+ * 模型名分支：未传或空串 → 用该 provider 在 DEFAULT_MODELS 里的默认值。
+ */
 export function getModel(provider: string, model?: string, opts: GetModelOptions = {}): ModelHandle {
   const p = normalizeProvider(provider);
   const modelName = model?.trim() || DEFAULT_MODELS[p];
@@ -71,7 +84,7 @@ export function getModel(provider: string, model?: string, opts: GetModelOptions
   return { model: openai(modelName), provider: p, modelName };
 }
 
-/** 凭证校验（对应 v1 validate_credentials）：发一次最小请求验证 key/模型可用 */
+/** 凭证校验（对应 v1 validate_credentials）：发一次最小请求（≤8 token）验证 key/模型可用；失败抛错，由调用方（server）转成 error 消息推给前端 */
 export async function validateModel(handle: ModelHandle): Promise<void> {
   await generateText({ model: handle.model, prompt: "Reply with OK", maxOutputTokens: 8 });
 }

@@ -95,7 +95,13 @@ export class SessionManager {
     timer.unref(); // 不阻止进程退出
   }
 
-  /** 取会话：内存缓存 → 磁盘文件（重载）→ 都没有则新建 */
+  /**
+   * 取会话（三级查找）：
+   *  1. 内存缓存命中 → touch 续命后直接返回；
+   *  2. 未命中 → 从 JSON 文件加载，有则 hydrate 成活会话（跨重启续聊就发生在这一步）；
+   *  3. 磁盘也没有 → 新建空会话放入缓存。
+   * 非法 sessionId（路径穿越样式）会在 store 层抛错，由 server 的分发 catch 统一回错误消息。
+   */
   async getOrCreate(sessionId: string): Promise<Session> {
     const cached = this.sessions.get(sessionId);
     if (cached) {
@@ -109,7 +115,7 @@ export class SessionManager {
     return session;
   }
 
-  /** 同 getOrCreate 但不新建：不存在返回 undefined（confirm 等场景用） */
+  /** 同 getOrCreate 的三级查找，但不新建：内存与磁盘都没有 → 返回 undefined（confirm 等「必须已有会话」的场景用，避免确认消息凭空造会话） */
   async get(sessionId: string): Promise<Session | undefined> {
     const cached = this.sessions.get(sessionId);
     if (cached) {
@@ -129,7 +135,12 @@ export class SessionManager {
     return this.sessions.get(sessionId);
   }
 
-  /** 把文件内容还原成活会话（模型句柄按存的 provider/model 重建，key 缺失则置空） */
+  /**
+   * 把 JSON 文件内容还原成活会话。
+   * 关键分支：存过 modelInfo → 尝试用当前环境的 key 重建模型句柄；重建失败（如环境没 key）
+   * 置 null 而不报错——下一次 run_task 会重新绑定模型，chat 则走 defaultHandle 兜底。
+   * Map 类字段（artifacts/confirmations）从数组还原；运行态字段（abortController/turnActive）一律归零。
+   */
   private hydrate(stored: StoredSession): Session {
     const session = newSession(stored.sessionId);
     session.title = stored.title;
@@ -149,7 +160,7 @@ export class SessionManager {
     return session;
   }
 
-  /** 落盘（在关键节点调用：任务上下文落位后 / 每轮结束 / 确认流程变化后） */
+  /** 落盘（关键节点调用：任务上下文落位后 / 每轮对话结束 / 确认流程变化后）。分支：未配置 store（如部分冒烟脚本）→ 静默跳过，退化为纯内存模式 */
   async save(session: Session): Promise<void> {
     await this.store?.save(session);
   }
@@ -158,7 +169,7 @@ export class SessionManager {
     session.lastActiveAtMs = Date.now();
   }
 
-  /** 清空/删除对话：中止运行中轮次 + 删内存 + 删文件 */
+  /** 删除对话（clear_memory 消息触发）：先 abort 运行中轮次（若有）→ 删内存缓存 → 删 JSON 文件。文件删除失败不阻塞（store 层已吞错），内存删除必定生效 */
   async clear(sessionId: string): Promise<void> {
     this.sessions.get(sessionId)?.abortController?.abort();
     this.sessions.delete(sessionId);
@@ -169,7 +180,7 @@ export class SessionManager {
     return this.sessions.size; // 内存缓存数（health 用）
   }
 
-  /** 对话列表（前端「选择对话继续/新建对话」）：磁盘 + 内存中尚未落盘的，按最近活跃倒序 */
+  /** 对话列表（前端「选择对话继续/新建对话」的数据源）：以磁盘文件为主，合并内存中尚未落盘的会话（按 sessionId 去重），结果按最近活跃时间倒序 */
   async list(): Promise<
     Array<{ sessionId: string; title: string | null; messageCount: number; updatedAtMs: number }>
   > {
@@ -188,7 +199,11 @@ export class SessionManager {
     return fromStore.sort((a, b) => b.updatedAtMs - a.updatedAtMs);
   }
 
-  /** 内存缓存清理：只逐出内存，不删文件（重访时静默重载） */
+  /**
+   * 定期清理（每 5 分钟）：遍历内存缓存，逐出超过 TTL 未活跃的会话。
+   * 分支：逐出时若仍有运行中轮次 → 先 abort；【只删内存、不删文件】——
+   * 该对话下次被访问时走 getOrCreate 的第 2 级（磁盘重载），用户全程无感知。
+   */
   private sweep(): void {
     const now = Date.now();
     for (const [sessionId, session] of this.sessions) {
@@ -203,6 +218,11 @@ export class SessionManager {
 
 // ───────────────────────── 产物存取（§3.2(4) 摘要+ID 机制） ─────────────────────────
 
+/**
+ * 产物存档（双写）：全文写入 session.artifacts（档案室 Map），
+ * 同时在 state.artifacts 登记「ID + 摘要」索引（目录页，供 LLM 上下文引用）。
+ * 返回 artifactId —— 调用方把它塞进 test_code 等 WS 消息，前端/LLM 之后凭 ID 调 read_artifact 取全文。
+ */
 export function putArtifact(
   session: Session,
   kind: ArtifactKind,
@@ -216,6 +236,7 @@ export function putArtifact(
   return artifactId;
 }
 
+/** 在目录页倒序查找：返回指定类型最近一份产物的 ID；一份都没有 → undefined（发消息时省略 artifactId 字段） */
 export function lastArtifactIdOfKind(session: Session, kind: ArtifactKind): string | undefined {
   for (let i = session.state.artifacts.length - 1; i >= 0; i--) {
     const ref = session.state.artifacts[i]!;
