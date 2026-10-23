@@ -69,12 +69,17 @@ export const PingMessageSchema = z
   .strict();
 export type PingMessage = z.infer<typeof PingMessageSchema>;
 
+/** 请求已保存的对话列表（前端「选择对话继续 / 新建对话」用，无需 sessionId） */
+export const ListSessionsMessageSchema = z.object({ type: z.literal("list_sessions") }).strict();
+export type ListSessionsMessage = z.infer<typeof ListSessionsMessageSchema>;
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   RunTaskMessageSchema,
   ChatMessageSchema,
   ConfirmMessageSchema,
   CancelMessageSchema,
   ClearMemoryMessageSchema,
+  ListSessionsMessageSchema,
   PingMessageSchema,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -166,12 +171,28 @@ export const CancelledMessageSchema = z.object({
 });
 export type CancelledMessage = z.infer<typeof CancelledMessageSchema>;
 
-/** 会话 TTL 过期（前端提示新建会话） */
+/** 会话过期通知（持久化落地后仅保留作协议预留：内存缓存淘汰改为静默重载） */
 export const SessionExpiredMessageSchema = z.object({
   type: z.literal("session_expired"),
   sessionId: z.string(),
 });
 export type SessionExpiredMessage = z.infer<typeof SessionExpiredMessageSchema>;
+
+/** 对话摘要（列表项） */
+export const SessionSummarySchema = z.object({
+  sessionId: z.string(),
+  title: z.string().nullish(), // 对话标题（取首条消息/文件名派生）
+  messageCount: z.number().int().nonnegative(),
+  updatedAtMs: z.number().int(),
+});
+export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+
+/** list_sessions 的应答：全部已保存对话，按最近活跃倒序 */
+export const SessionsListMessageSchema = z.object({
+  type: z.literal("sessions_list"),
+  sessions: z.array(SessionSummarySchema),
+});
+export type SessionsListMessage = z.infer<typeof SessionsListMessageSchema>;
 
 export const ServerMessageSchema = z.discriminatedUnion("type", [
   PongMessageSchema,
@@ -181,6 +202,7 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   TestCodeMessageSchema,
   ResultMessageSchema,
   ConfirmationRequestMessageSchema,
+  SessionsListMessageSchema,
   ErrorMessageSchema,
   CancelledMessageSchema,
   SessionExpiredMessageSchema,

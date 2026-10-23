@@ -1,21 +1,19 @@
 /**
- * AgentUnitTest Agent Server —— WS 协议 v2 骨架版（M1 第 4 步）。
+ * AgentUnitTest Agent Server —— WS 协议 v2（M1 骨架 + 会话 JSON 落盘）。
  *
  * 已实现：
- *   - ClientMessage 契约校验（strict：非法/未知字段直接拒绝）
- *   - run_task / chat / confirm / cancel / clear_memory / ping 分发
- *   - 每会话串行任务队列（chat 在任务运行中自动排队 —— 讨论稿议题三决议）
- *   - 出站消息契约校验（ServerMessageSchema）
- *   - 会话 TTL 过期 → session_expired 推送；断线 → 取消该连接会话的活跃轮次
+ *   - ClientMessage 契约校验（strict）+ 出站消息契约校验
+ *   - run_task / chat / confirm / cancel / clear_memory / list_sessions / ping 分发
+ *   - 每会话串行任务队列（chat 在任务运行中自动排队）
+ *   - 会话持久化：data/sessions/<sessionId>.json（重启后选择同一对话可继续聊）
+ *   - 断线 → 取消该连接会话的活跃轮次
  *
- * TODO（M1 第 6 步 / M2）：
- *   - instanceId 校验（防陈旧前端连接，v1 机制迁移）
- *   - 同 sessionId 多连接广播（当前事件只回发起连接）
+ * TODO（M1 第 6 步 / M2）：instanceId 校验、同 sessionId 多连接广播、上下文压缩。
  */
 import "./env.js"; // ⚠️ 必须是第一个 import（清洗空字符串环境变量，见 env.ts 注释）
 
 import http from "node:http";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
   ClientMessageSchema,
@@ -27,6 +25,7 @@ import {
 } from "@agent-unittest/contracts";
 import { getModel, validateModel, type ModelHandle } from "./llm/factory.js";
 import { SessionManager, type Session } from "./runtime/session.js";
+import { SessionStore } from "./runtime/session-store.js";
 import {
   buildTaskUserMessage,
   handleConfirmDecision,
@@ -37,19 +36,11 @@ import {
 const VERSION = "0.1.0";
 const AGENT_FRAMEWORK = "vercel-ai-sdk";
 
-const sessions = new SessionManager();
+const store = new SessionStore();
+const sessions = new SessionManager(undefined, store);
 const chains = new Map<string, Promise<void>>(); // 每会话串行队列
 const socketsBySession = new Map<string, Set<WebSocket>>();
 const sessionsBySocket = new Map<WebSocket, Set<string>>();
-
-sessions.setExpirationHandler((sessionId) => {
-  const sockets = socketsBySession.get(sessionId);
-  if (!sockets) return;
-  for (const socket of sockets) {
-    send(socket, { type: "session_expired", sessionId });
-  }
-  socketsBySession.delete(sessionId);
-});
 
 // ───────────────────────── 基础设施 ─────────────────────────
 
@@ -79,16 +70,31 @@ function enqueue(sessionId: string, task: () => Promise<void>): void {
   void next.catch(() => {});
 }
 
+/** 对话标题派生：首条内容的第一行，去代码围栏，截 30 字 */
+function deriveTitle(text: string): string {
+  const firstLine =
+    text
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0 && !l.startsWith("```")) ?? text.trim();
+  return firstLine.length > 30 ? `${firstLine.slice(0, 30)}…` : firstLine;
+}
+
 // ───────────────────────── 消息处理 ─────────────────────────
 
-function handleRunTask(msg: RunTaskMessage, emit: EmitFn): void {
-  const session = sessions.getOrCreate(msg.sessionId);
+async function handleRunTask(msg: RunTaskMessage, emit: EmitFn): Promise<void> {
+  const session = await sessions.getOrCreate(msg.sessionId);
   session.abortController?.abort(); // 抢占：新任务取消旧轮次（沿用 v1 行为）
   session.state.taskContext = {
     code: msg.code,
     filePath: msg.filePath,
     workspaceRoot: msg.workspaceRoot,
   };
+  if (!session.title) {
+    session.title = msg.instruction
+      ? deriveTitle(msg.instruction)
+      : `${path.basename(msg.filePath)} 测试对话`;
+  }
 
   let handle: ModelHandle;
   try {
@@ -98,6 +104,7 @@ function handleRunTask(msg: RunTaskMessage, emit: EmitFn): void {
     return;
   }
   session.modelHandle = handle; // chat 消息不带 provider，沿用本会话模型
+  await sessions.save(session); // 任务上下文与模型绑定先落盘（即使本轮崩溃也能恢复）
 
   enqueue(msg.sessionId, async () => {
     try {
@@ -119,12 +126,14 @@ function handleRunTask(msg: RunTaskMessage, emit: EmitFn): void {
         filePath: msg.filePath,
         instruction: msg.instruction,
       }),
+      onPersist: () => sessions.save(session),
     });
   });
 }
 
-function handleChat(msg: ChatMessage, emit: EmitFn): void {
-  const session = sessions.getOrCreate(msg.sessionId);
+async function handleChat(msg: ChatMessage, emit: EmitFn): Promise<void> {
+  const session = await sessions.getOrCreate(msg.sessionId);
+  if (!session.title) session.title = deriveTitle(msg.message);
   const handle = session.modelHandle ?? defaultHandle();
   if (!handle) {
     emit({
@@ -136,7 +145,13 @@ function handleChat(msg: ChatMessage, emit: EmitFn): void {
   }
   session.modelHandle = handle;
   enqueue(msg.sessionId, () =>
-    runAgentTurn({ session, handle, emit, userMessage: msg.message }),
+    runAgentTurn({
+      session,
+      handle,
+      emit,
+      userMessage: msg.message,
+      onPersist: () => sessions.save(session),
+    }),
   );
 }
 
@@ -150,8 +165,8 @@ function defaultHandle(): ModelHandle | null {
   }
 }
 
-function handleConfirm(msg: ConfirmMessage, emit: EmitFn): void {
-  const session: Session | undefined = sessions.get(msg.sessionId);
+async function handleConfirm(msg: ConfirmMessage, emit: EmitFn): Promise<void> {
+  const session: Session | undefined = await sessions.get(msg.sessionId);
   if (!session) {
     emit({ type: "error", sessionId: msg.sessionId, message: "会话不存在或已过期" });
     return;
@@ -169,10 +184,17 @@ function handleConfirm(msg: ConfirmMessage, emit: EmitFn): void {
           return;
         }
         enqueue(msg.sessionId, () =>
-          runAgentTurn({ session, handle, emit, userMessage: systemMessage }),
+          runAgentTurn({
+            session,
+            handle,
+            emit,
+            userMessage: systemMessage,
+            onPersist: () => sessions.save(session),
+          }),
         );
       },
     });
+    await sessions.save(session); // 确认账本/pendingRepair 变化落盘
   });
 }
 
@@ -190,6 +212,7 @@ export function createServer(): { httpServer: http.Server; wss: WebSocketServer 
           version: VERSION,
           agent_framework: AGENT_FRAMEWORK,
           active_sessions: sessions.count(),
+          session_store: store.dir,
         }),
       );
       return;
@@ -223,37 +246,52 @@ export function createServer(): { httpServer: http.Server; wss: WebSocketServer 
       const msg = parsed.data;
       if ("sessionId" in msg && typeof msg.sessionId === "string") bind(socket, msg.sessionId);
 
-      switch (msg.type) {
-        case "ping":
-          send(socket, { type: "pong", ts: msg.ts ?? Date.now() });
-          break;
-        case "run_task":
-          handleRunTask(msg, emit);
-          break;
-        case "chat":
-          handleChat(msg, emit);
-          break;
-        case "confirm":
-          handleConfirm(msg, emit);
-          break;
-        case "cancel": {
-          const session = sessions.get(msg.sessionId);
-          if (session?.abortController) {
-            session.abortController.abort(); // cancelled 事件由 runAgentTurn 的 catch 发出
-          } else {
-            send(socket, {
-              type: "cancelled",
-              sessionId: msg.sessionId,
-              message: "当前无运行中任务",
-            });
+      // 统一异步分发 + 兜底错误处理（如非法 sessionId 的路径穿越拦截）
+      void (async () => {
+        try {
+          switch (msg.type) {
+            case "ping":
+              send(socket, { type: "pong", ts: msg.ts ?? Date.now() });
+              break;
+            case "run_task":
+              await handleRunTask(msg, emit);
+              break;
+            case "chat":
+              await handleChat(msg, emit);
+              break;
+            case "confirm":
+              await handleConfirm(msg, emit);
+              break;
+            case "list_sessions":
+              send(socket, { type: "sessions_list", sessions: await sessions.list() });
+              break;
+            case "cancel": {
+              const session = sessions.peek(msg.sessionId); // 只关心内存中活着的轮次
+              if (session?.abortController) {
+                session.abortController.abort(); // cancelled 事件由 runAgentTurn 的 catch 发出
+              } else {
+                send(socket, {
+                  type: "cancelled",
+                  sessionId: msg.sessionId,
+                  message: "当前无运行中任务",
+                });
+              }
+              break;
+            }
+            case "clear_memory":
+              await sessions.clear(msg.sessionId); // 内存 + JSON 文件一起删
+              console.log(`[server] 会话已删除（含文件）: ${msg.sessionId}`);
+              break;
           }
-          break;
+        } catch (err) {
+          const sessionId = "sessionId" in msg ? (msg.sessionId as string) : undefined;
+          send(socket, {
+            type: "error",
+            sessionId,
+            message: `处理失败: ${err instanceof Error ? err.message : String(err)}`,
+          });
         }
-        case "clear_memory":
-          sessions.clear(msg.sessionId);
-          console.log(`[server] 会话已清空: ${msg.sessionId}`);
-          break;
-      }
+      })();
     });
 
     socket.on("close", () => {
@@ -261,7 +299,7 @@ export function createServer(): { httpServer: http.Server; wss: WebSocketServer 
       const owned = sessionsBySocket.get(socket);
       if (owned) {
         for (const sid of owned) {
-          sessions.get(sid)?.abortController?.abort(); // 断线取消活跃轮次（沿用 v1 行为）
+          sessions.peek(sid)?.abortController?.abort(); // 断线取消活跃轮次（沿用 v1 行为）
           socketsBySession.get(sid)?.delete(socket);
         }
         sessionsBySocket.delete(socket);
@@ -285,6 +323,7 @@ export async function startServer(port: number): Promise<ServerHandle> {
   const actualPort = typeof addr === "object" && addr ? addr.port : port;
   console.log(`[agent-server] health: http://127.0.0.1:${actualPort}/health`);
   console.log(`[agent-server] ws:     ws://127.0.0.1:${actualPort}/ws`);
+  console.log(`[agent-server] 会话存储目录: ${store.dir}`);
   return {
     httpServer,
     port: actualPort,
@@ -297,9 +336,5 @@ export async function startServer(port: number): Promise<ServerHandle> {
 
 // 直接运行本文件时启动服务（被 import 时不启动，供冒烟脚本复用）
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  const port = Number(process.env.PORT ?? 8765);
-  void startServer(port);
-} else if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const port = Number(process.env.PORT ?? 8765);
-  void startServer(port);
+  void startServer(Number(process.env.PORT ?? 8765));
 }

@@ -20,7 +20,7 @@ function check(name: string, cond: boolean): void {
 }
 
 const sessions = new SessionManager();
-const session = sessions.getOrCreate("smoke-confirm");
+const session = await sessions.getOrCreate("smoke-confirm");
 session.state.taskContext = {
   code: "public class Calculator { public int divide(int a, int b) { return a / b; } }",
   filePath: "src/main/java/com/example/Calculator.java",

@@ -19,6 +19,7 @@
     "smoke:contracts": "npm run smoke:contracts -w agent-server",
     "smoke:ws": "npm run smoke:ws -w agent-server",
     "smoke:confirm": "npm run smoke:confirm -w agent-server",
+    "smoke:store": "npm run smoke:store -w agent-server",
     "smoke:agent": "npm run smoke:agent -w agent-server",
     "dev": "npm run dev -w agent-server"
   }

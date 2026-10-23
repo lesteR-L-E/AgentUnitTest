@@ -42,7 +42,7 @@ await validateModel(handle);
 
 // 3) 发起一轮任务
 const sessions = new SessionManager();
-const session = sessions.getOrCreate("smoke-agent");
+const session = await sessions.getOrCreate("smoke-agent");
 session.modelHandle = handle;
 session.state.taskContext = {
   code: CALC,

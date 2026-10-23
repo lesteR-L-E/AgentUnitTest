@@ -13,6 +13,7 @@
     "smoke:contracts": "tsx src/smoke/hello-contracts.ts",
     "smoke:ws": "tsx src/smoke/hello-ws.ts",
     "smoke:confirm": "tsx src/smoke/hello-confirm.ts",
+    "smoke:store": "tsx src/smoke/hello-store.ts",
     "smoke:agent": "tsx src/smoke/hello-agent.ts"
   },
   "dependencies": {

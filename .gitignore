@@ -15,6 +15,9 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# 会话落盘数据（用户对话内容，绝不入库）
+data/
+
 # Python 遗留（本仓库不应出现，防御性忽略）
 .venv/
 __pycache__/

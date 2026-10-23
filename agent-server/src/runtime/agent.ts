@@ -322,6 +322,8 @@ export interface RunTurnOptions {
   handle: ModelHandle;
   emit: EmitFn;
   userMessage: string;
+  /** 轮次结束（含失败/取消）后回调：server 用它把会话落盘 */
+  onPersist?: () => void | Promise<void>;
 }
 
 /** 执行一轮 Agent 对话（任务触发与 chat 触发走同一入口） */
@@ -416,5 +418,10 @@ export async function runAgentTurn(opts: RunTurnOptions): Promise<void> {
     session.turnActive = false;
     session.abortController = null;
     session.lastActiveAtMs = Date.now();
+    try {
+      await opts.onPersist?.(); // 轮次结束落盘：重启后可从这里继续聊
+    } catch (err) {
+      console.error("[agent] 会话落盘失败:", err);
+    }
   }
 }

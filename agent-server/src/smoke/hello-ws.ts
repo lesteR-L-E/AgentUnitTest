@@ -69,6 +69,12 @@ ws.send(JSON.stringify({ type: "chat", sessionId: "x", message: "hi", hackField:
 await err3Wait;
 check("strict 模式拒绝多余字段", true);
 
+// 7) list_sessions → sessions_list（对话列表，前端「选择对话/新建对话」数据源）
+const listWait = nextMessage((m) => m.type === "sessions_list");
+ws.send(JSON.stringify({ type: "list_sessions" }));
+const listMsg = await listWait;
+check("list_sessions → sessions_list", Array.isArray(listMsg.sessions));
+
 ws.close();
 await handle.close();
 
