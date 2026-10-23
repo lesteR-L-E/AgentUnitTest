@@ -19,16 +19,17 @@ src/
 **webview 内 JS 只管渲染和收集用户动作；所有业务（会话 ID、WS、后端进程）都在 extension.ts。** webview 里没有秘密、没有状态——两边仅靠 postMessage 通讯：
 
 - webview → 扩展：`{command: ready|generate|chat|confirm|cancel|newChat|listSessions|switchSession, ...}`
-- 扩展 → webview：三个 channel——`server`（服务端消息透传）、`info`（本地提示文案）、`session`（会话切换，清空消息流）
+- 扩展 → webview：四个 channel——`server`（服务端消息透传）、`info`（本地提示文案）、`session`（会话切换，清空消息流）、`selection`（选中代码预览推送；sel=null 表示清除预览）
 
 ## 关键机制（修改前必知）
 
 - **懒启动**：扩展激活不拉起后端；侧边栏 `ready` 或首次发消息/生成时才 `ensureBackend()`（幂等：进行中复用同一 Promise；失败后置空允许重试）。
+- **选中预览**（选区变化 → 侧边栏预览卡，供用户核对选区）：`onDidChangeTextEditorSelection` 监听 + 防抖 200ms（拖选事件风暴），把 `{fileName, lineCount, code}` 经 `selection` channel 推给 webview 渲染折叠卡；非 file 文档（输出面板等）不预览；选区为空推 null 隐藏。预览超 2000 字符截断显示（附提示），**完整代码仍随 run_task 发送**；点「生成测试」时以编辑器当前实际选区为准，预览本身不参与发送、不改变任何业务行为。
 - **会话 ID 生命周期**（extension.ts `state.sessionId`）：每个窗口一个 UUID；「新建对话」= 换新 UUID（旧对话文件保留，可从列表回去）；「对话列表」= `list_sessions` 消息拉取；切换 = 改 state + 通知 webview 清屏。收到服务端消息先按 sessionId 过滤——**不是当前对话的消息不渲染**。
 - **两个消息入口最终合流**：「生成测试(选中)」按钮/右键 → `run_task`（带 code/filePath/workspaceRoot）；输入框打字 → `chat`。两者都要求编辑器打开的是工作区内的文件（无 workspace 时提示先打开项目）。
 - **心跳与重连**（wsClient.ts）：连接建立即起 30s ping 定时器；close 即指数退避重连；`dispose()` 置 `shouldRun=false` 后不再重连。
 - **后端进程**（backendProcess.ts）：`ELECTRON_RUN_AS_NODE` 复用 VSCode 内置 Node 跑 `agent-server/dist/server.js`（所以**改了后端源码必须先 `npm run build`**）；`listen(0)` 要端口经 `PORT` 传入；就绪只轮询 `/health`；停止按平台 taskkill / SIGTERM→SIGKILL（见 spec/cross-platform.md §1）。插件 deactivate / 窗口关闭 → dispose 杀进程树。
-- **webview HTML 约束**（sidebarProvider.ts `buildHtml`）：模板字符串内不能出现 `${...}`（会被 TS 插值），webview JS 全部用字符串拼接；已设 CSP（`default-src 'none'`）；`retainContextWhenHidden: true` 隐藏时保留聊天记录。
+- **webview HTML 约束**（sidebarProvider.ts `buildHtml`）：模板字符串内不能出现 `${...}`（会被 TS 插值），webview JS 全部用字符串拼接；**反斜杠转义会被 TS 模板字符串先解释**——`\n` 到 webview 已是真实换行，断在字符串里即语法错误且整个 webview 脚本失效（按钮/监听全无反应），需在 webview JS 里写换行转义必须写 `\\n`；已设 CSP（`default-src 'none'`）；`retainContextWhenHidden: true` 隐藏时保留聊天记录。
 
 ## 硬约束
 

@@ -40,7 +40,8 @@ npm run smoke:agent
 #   1. VSCode 打开本仓库，按 F5（自动编译三个包并启动「扩展开发宿主」新窗口）
 #   2. 新窗口中：文件 → 打开文件夹 → 选择任意 Java 项目（含 pom.xml/build.gradle）
 #   3. 点击活动栏的 AgentUnitTest 图标打开侧边栏（后端进程自动启动）
-#   4. 选中一段 Java 代码 → 点「生成测试(选中)」或右键 → Generate Unit Tests
+#   4. 选中一段 Java 代码 → 侧边栏顶部出现选中预览卡（文件名 · 行数 · 代码，可核对是否选对）
+#      → 点「生成测试(选中)」或右键 → Generate Unit Tests
 #   5. 在输入框和 Agent 对话；「新建对话」/「对话列表」切换会话，对话存于
 #      agent-server/data/sessions/（重启可续聊）
 #   6. 演示失败全流程：在生成约束里带「失败」二字 → 桩工具注入故意失败用例 →

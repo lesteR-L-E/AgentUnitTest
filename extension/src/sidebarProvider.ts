@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 /**
- * 侧边栏 Webview（M1 演示版）：消息流 + 输入框 + 任务事件 + 双重确认按钮 + 对话列表。
+ * 侧边栏 Webview（M1 演示版）：消息流 + 输入框 + 任务事件 + 双重确认按钮 + 对话列表 + 选中代码预览卡。
  * 原则：能演示即可，不求美观（正式 UI 由人员5 在 M2 重做）。
  *
  * 与 extension.ts 的分工：
@@ -77,6 +77,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     void this.view?.webview.postMessage({ channel: "info", text });
   }
 
+  /**
+   * 选区预览推送（extension.ts 选区监听防抖后调用）。
+   * 分支：sel=null（选区为空/非文件文档）→ webview 隐藏预览卡；有值 → 渲染
+   * 「文件名 · 行数 · 代码」折叠卡。预览仅显示，点「生成测试」时仍以编辑器实际选区为准。
+   */
+  postSelection(sel: { fileName: string; lineCount: number; code: string } | null): void {
+    void this.view?.webview.postMessage({ channel: "selection", sel });
+  }
+
   /** 通知 webview 当前会话变了（清空消息流） */
   setSession(sessionId: string): void {
     void this.view?.webview.postMessage({ channel: "session", sessionId });
@@ -85,6 +94,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
 // ───────────────────────── Webview HTML（无外部资源，内联 JS/CSS） ─────────────────────────
 // 注意：模板字符串内不能出现 ${...}（会被 TS 插值），webview JS 全部用字符串拼接。
+// 注意：模板字符串内的反斜杠转义会被 TS 先解释——\n 到 webview 已是真实换行（断在字符串里
+// 即语法错误，一行错全脚本失效）。需要在 webview JS 里写 \n 转义时必须写 \\n。
 
 function buildHtml(): string {
   return `<!DOCTYPE html>
@@ -99,6 +110,7 @@ function buildHtml(): string {
   button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
   button:hover { opacity: 0.85; }
   #sid { font-size: 10px; color: var(--vscode-descriptionForeground); margin-bottom: 4px; }
+  #preview { display: none; margin-bottom: 6px; }
   #sessions { display: none; border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 6px; margin-bottom: 6px; max-height: 160px; overflow: auto; }
   .sitem { padding: 4px; cursor: pointer; font-size: 11px; border-radius: 3px; }
   .sitem:hover { background: var(--vscode-list-hoverBackground); }
@@ -128,6 +140,7 @@ function buildHtml(): string {
   </div>
   <div id="sessions"></div>
   <div id="sid"></div>
+  <div id="preview"></div>
   <div id="list"></div>
   <div id="inputRow">
     <textarea id="input" placeholder="和 Agent 对话…（Enter 发送，Shift+Enter 换行）"></textarea>
@@ -169,6 +182,28 @@ function buildHtml(): string {
     if (d.channel === 'session') {
       sidEl.textContent = '当前对话: ' + d.sessionId;
       listEl.innerHTML = ''; bubbles = {};
+      return;
+    }
+    if (d.channel === 'selection') {
+      var pv = document.getElementById('preview');
+      if (!d.sel) { pv.innerHTML = ''; pv.style.display = 'none'; return; }
+      pv.style.display = 'block';
+      pv.innerHTML = '';
+      var det = document.createElement('details');
+      det.className = 'card';
+      det.open = true;
+      var sum = document.createElement('summary');
+      // 预览超长截断（仅显示层；完整代码仍随 run_task 发送给 Agent）
+      var MAX_PREVIEW = 2000;
+      var code = d.sel.code;
+      var shown = code.length > MAX_PREVIEW
+        ? code.slice(0, MAX_PREVIEW) + '\\n…（共 ' + code.length + ' 字符，预览已截断；完整代码仍会发给 Agent）'
+        : code;
+      sum.textContent = '✂ 已选中 ' + d.sel.fileName + ' · ' + d.sel.lineCount + ' 行（点击折叠）';
+      var pre = document.createElement('pre');
+      pre.textContent = shown;
+      det.appendChild(sum); det.appendChild(pre);
+      pv.appendChild(det);
       return;
     }
     if (d.channel !== 'server') return;

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { randomUUID } from "crypto";
+import * as path from "path";
 import { BackendProcess } from "./backend/backendProcess";
 import { WsClient } from "./wsClient";
 import { SidebarProvider } from "./sidebarProvider";
@@ -92,6 +93,29 @@ export function activate(context: vscode.ExtensionContext) {
     }
     return true;
   }
+
+  // ── 选中代码预览（供用户核对选区；仅显示，不参与发送） ────
+  let previewTimer: NodeJS.Timeout | null = null;
+  context.subscriptions.push(
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      const doc = e.textEditor.document;
+      // 非 file 文档（输出面板/终端等）不预览，避免垃圾选区
+      if (doc.uri.scheme !== "file") return;
+      // 防抖 200ms：拖选过程事件风暴，停下后只推一次
+      if (previewTimer) clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => {
+        previewTimer = null;
+        const sel = e.textEditor.selection;
+        const text = sel.isEmpty ? "" : doc.getText(sel);
+        provider.postSelection(
+          text
+            ? { fileName: path.basename(doc.fileName), lineCount: text.split("\n").length, code: text }
+            : null, // 选区为空 → null，webview 隐藏预览卡
+        );
+      }, 200);
+    }),
+    { dispose: () => { if (previewTimer) clearTimeout(previewTimer); } },
+  );
 
   // ── 生成测试（侧边栏按钮 / 右键菜单共用） ─────────────────
   async function generateTests(): Promise<void> {

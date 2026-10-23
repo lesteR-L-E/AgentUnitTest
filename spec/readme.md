@@ -82,3 +82,4 @@ extension ──WS(协议v2)──▶ agent-server ──▶ @agent-unittest/con
 2. **`.env` 空字符串会让 AI SDK 在 import 期抛错。** `OPENAI_BASE_URL=`（等号后为空）注入的是空字符串而非"未设置"，AI SDK 视为非法值。`agent-server/src/env.ts` 负责清洗并必须保持为入口文件第一个 import——新增入口（冒烟脚本等）时照做。
 3. **AI SDK v7 弃用 API 注意**：用 `result.stream`（不是 fullStream）、`result.responseMessages`（不是 response.messages）、`result.usage`（不是 totalUsage）。升级 SDK 版本时先全局检查这三处。
 4. **会话相关改动重启后"丢失"？** 会话按 sessionId 存 `agent-server/data/sessions/*.json`（不入库）；内存缓存 30 分钟逐出但文件保留。排查续聊问题先看文件是否存在、`version`/`sessionId` 是否匹配（不匹配按不存在处理）。
+5. **webview 整个没反应（按钮/对话/ready 全失效）？** 内联 JS 一行语法错误会废掉整个脚本。`buildHtml` 是 TS 模板字符串：`${...}` 会被插值、反斜杠转义（如 `\n`）会被 TS 先解释成真实换行——断在 webview JS 字符串里就是语法错误。**`npm run build` 查不出这类问题**（tsc 只看 TS 源码），需对产物做运行时验证：取出 `out/sidebarProvider.js` 的模板串 eval 后，用 `new Function(<script>内容)` 做语法检查。
